@@ -2,28 +2,35 @@ package http
 
 import (
 	"net/http"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type Handler struct {
-	mux     *http.ServeMux
-	handler http.Handler
+	router *chi.Mux
 }
 
 func NewHandler() *Handler {
 	h := &Handler{
-		mux: http.NewServeMux(),
+		router: chi.NewRouter(),
 	}
+
+	// Apply global middleware
+	h.router.Use(CORS)
+	h.router.Use(Logger)
+
 	h.registerRoutes()
-	h.handler = Logger(CORS(h.mux))
 	return h
 }
 
 func (h *Handler) registerRoutes() {
 	// Health check
-	h.mux.HandleFunc("/ping", h.Ping)
+	h.router.Get("/ping", h.Ping)
 
-	// API routes
-	h.mux.HandleFunc("/api/v1/contributors", h.ListContributors)
+	// API routes - grouped under /api/v1
+	h.router.Route("/repositories/stats", func(r chi.Router) {
+		r.Get("/contributors", h.ListContributors)
+	})
 }
 
 func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
@@ -33,5 +40,5 @@ func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.handler.ServeHTTP(w, r)
+	h.router.ServeHTTP(w, r)
 }
