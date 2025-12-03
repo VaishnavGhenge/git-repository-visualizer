@@ -38,6 +38,7 @@ func (h *Handler) registerRoutes() {
 	h.router.Route("/api/v1", func(r chi.Router) {
 		// Repository management
 		r.Post("/repositories", h.CreateRepository)
+		r.Get("/repositories", h.ListRepositories)
 		r.Get("/repositories/{id}", h.GetRepository)
 		r.Post("/repositories/{id}/index", h.IndexRepository)
 		r.Post("/repositories/{id}/update", h.UpdateRepository)

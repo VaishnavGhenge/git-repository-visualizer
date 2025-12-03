@@ -68,6 +68,34 @@ func (h *Handler) GetRepository(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, repo)
 }
 
+// ListRepositories handles GET /api/v1/repositories
+func (h *Handler) ListRepositories(w http.ResponseWriter, r *http.Request) {
+	// Get limit and offset from query parameters
+	limit := 10
+	offset := 0
+
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil && o >= 0 {
+			offset = o
+		}
+	}
+
+	ctx := r.Context()
+	repos, err := h.db.ListRepositories(ctx, limit, offset)
+	if err != nil {
+		Error(w, fmt.Errorf("failed to list repositories"), http.StatusInternalServerError)
+		return
+	}
+
+	JSON(w, http.StatusOK, repos)
+}
+
 // IndexRepository handles POST /api/v1/repositories/{id}/index
 func (h *Handler) IndexRepository(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
