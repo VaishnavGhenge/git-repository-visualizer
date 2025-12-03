@@ -12,9 +12,16 @@ import (
 	"git-repository-visualizer/internal/queue"
 	"git-repository-visualizer/internal/redis"
 	"git-repository-visualizer/internal/worker"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load .env file if it exists
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found or error loading it, using environment variables")
+	}
+
 	// Load configuration
 	cfg := config.Load()
 

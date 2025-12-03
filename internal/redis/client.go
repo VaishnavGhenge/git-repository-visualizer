@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"strings"
 
 	"git-repository-visualizer/internal/config"
 
@@ -18,17 +19,25 @@ type Client struct {
 // NewClient creates a new Redis client based on the configuration
 func NewClient(cfg config.RedisConfig) (*Client, error) {
 	opts := &redis.Options{
-		Addr:     cfg.Address,
-		Password: cfg.Password,
-		DB:       cfg.DB,
-		Username: cfg.Username,
+		Addr:       cfg.Address,
+		Password:   cfg.Password,
+		DB:         cfg.DB,
+		Username:   cfg.Username,
+		MaxRetries: 3,
 	}
 
 	// Enable TLS if configured (required for Redis Cloud)
 	if cfg.UseTLS {
+		fmt.Printf("Redis TLS enabled for address: %s\n", cfg.Address)
+		// Extract hostname from address (remove port) for SNI
+		host := strings.Split(cfg.Address, ":")[0]
 		opts.TLSConfig = &tls.Config{
 			MinVersion: tls.VersionTLS12,
+			ServerName: host, // Set SNI for proper TLS handshake
 		}
+		fmt.Printf("Redis TLS ServerName set to: %s\n", host)
+	} else {
+		fmt.Printf("Redis TLS disabled for address: %s\n", cfg.Address)
 	}
 
 	client := redis.NewClient(opts)
