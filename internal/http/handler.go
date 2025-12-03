@@ -3,16 +3,23 @@ package http
 import (
 	"net/http"
 
+	"git-repository-visualizer/internal/database"
+	"git-repository-visualizer/internal/queue"
+
 	"github.com/go-chi/chi/v5"
 )
 
 type Handler struct {
-	router *chi.Mux
+	router    *chi.Mux
+	db        *database.DB
+	publisher *queue.Publisher
 }
 
-func NewHandler() *Handler {
+func NewHandler(db *database.DB, publisher *queue.Publisher) *Handler {
 	h := &Handler{
-		router: chi.NewRouter(),
+		router:    chi.NewRouter(),
+		db:        db,
+		publisher: publisher,
 	}
 
 	// Apply global middleware
@@ -28,8 +35,20 @@ func (h *Handler) registerRoutes() {
 	h.router.Get("/ping", h.Ping)
 
 	// API routes - grouped under /api/v1
-	h.router.Route("/repositories/stats", func(r chi.Router) {
-		r.Get("/contributors", h.ListContributors)
+	h.router.Route("/api/v1", func(r chi.Router) {
+		// Repository management
+		r.Post("/repositories", h.CreateRepository)
+		r.Get("/repositories/{id}", h.GetRepository)
+		r.Post("/repositories/{id}/index", h.IndexRepository)
+		r.Post("/repositories/{id}/update", h.UpdateRepository)
+
+		// Repository stats
+		r.Route("/repositories/{id}/stats", func(r chi.Router) {
+			r.Get("/contributors", h.ListContributors)
+		})
+
+		// Queue management
+		r.Get("/queue/length", h.GetQueueLength)
 	})
 }
 
