@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"git-repository-visualizer/internal/database"
+	"git-repository-visualizer/internal/validation"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -25,11 +26,21 @@ func (h *Handler) CreateRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.URL == "" {
-		Error(w, fmt.Errorf("repository URL is required"), http.StatusBadRequest)
+	// Validate request
+	v := validation.New()
+	v.Required("url", req.URL).GitURL("url", req.URL)
+
+	if req.DefaultBranch != "" {
+		v.MinLength("default_branch", req.DefaultBranch, 1).
+			MaxLength("default_branch", req.DefaultBranch, 255)
+	}
+
+	if err := v.Validate(); err != nil {
+		Error(w, err, http.StatusBadRequest)
 		return
 	}
 
+	// Set default branch if not provided
 	if req.DefaultBranch == "" {
 		req.DefaultBranch = "main"
 	}
@@ -41,8 +52,11 @@ func (h *Handler) CreateRepository(w http.ResponseWriter, r *http.Request) {
 		Status:        database.StatusPending,
 	}
 
+	// Create repository - database errors (like unique violations) are handled by Error()
 	if err := h.db.CreateRepository(ctx, repo); err != nil {
-		Error(w, fmt.Errorf("failed to create repository"), http.StatusInternalServerError)
+		// Parse and return appropriate error
+		parsedErr := validation.ParseDatabaseError(err)
+		Error(w, parsedErr, http.StatusInternalServerError)
 		return
 	}
 
@@ -58,10 +72,26 @@ func (h *Handler) GetRepository(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate ID is positive
+	v := validation.New()
+	v.GreaterThan("id", int(id), 0)
+	if err := v.Validate(); err != nil {
+		Error(w, err, http.StatusBadRequest)
+		return
+	}
+
 	ctx := r.Context()
 	repo, err := h.db.GetRepository(ctx, id)
 	if err != nil {
-		Error(w, fmt.Errorf("repository not found"), http.StatusNotFound)
+		parsedErr := validation.ParseDatabaseError(err)
+
+		// Check if it's a not found error
+		if validation.IsNotFound(err) {
+			Error(w, parsedErr, http.StatusNotFound)
+			return
+		}
+
+		Error(w, parsedErr, http.StatusInternalServerError)
 		return
 	}
 
@@ -86,10 +116,21 @@ func (h *Handler) ListRepositories(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Validate pagination parameters
+	v := validation.New()
+	v.InRange("limit", limit, 1, 100).
+		GreaterThanOrEqual("offset", offset, 0)
+
+	if err := v.Validate(); err != nil {
+		Error(w, err, http.StatusBadRequest)
+		return
+	}
+
 	ctx := r.Context()
 	repos, err := h.db.ListRepositories(ctx, limit, offset)
 	if err != nil {
-		Error(w, fmt.Errorf("failed to list repositories"), http.StatusInternalServerError)
+		parsedErr := validation.ParseDatabaseError(err)
+		Error(w, parsedErr, http.StatusInternalServerError)
 		return
 	}
 
