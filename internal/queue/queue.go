@@ -24,7 +24,14 @@ func NewQueue(redis *redis.Client, queueName string) *Queue {
 // Push adds a job to the queue (RPUSH)
 func (q *Queue) Push(job *Job) error {
     ctx := context.Background()
-    return q.redis.RPush(ctx, q.queueName, job).Err()
+
+    // Convert job to JSON
+    jsonData, err := job.ToJSON()
+    if err != nil {
+        return fmt.Errorf("failed to serialize job: %w", err)
+    }
+
+    return q.redis.RPush(ctx, q.queueName, jsonData).Err()
 }
 
 // Pop removed and return a job (BLOP with timeout)
