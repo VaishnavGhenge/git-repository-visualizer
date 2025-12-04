@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"path/filepath"
 	"time"
 
 	"git-repository-visualizer/internal/database"
+	"git-repository-visualizer/internal/git"
 	"git-repository-visualizer/internal/queue"
 )
 
@@ -58,14 +60,20 @@ func (h *JobHandler) handleIndexJob(ctx context.Context, job *queue.Job) error {
 
 	log.Printf("Indexing repository: %s (ID: %d)", repo.URL, repoID)
 
-	// TODO: Implement actual git cloning and analysis logic
-	// For now, simulate processing with a delay
-	time.Sleep(2 * time.Second)
+	// Construct local path for cloning
+	localPath := filepath.Join(h.storagePath, fmt.Sprintf("%d", repoID))
 
-	// Simulate successful indexing
+	// Index the repository
+	if err := git.IndexRepository(ctx, repo.URL, localPath); err != nil {
+		h.db.UpdateRepositoryStatus(ctx, repoID, database.StatusFailed)
+		return fmt.Errorf("failed to index repository: %w", err)
+	}
+
+	// Update repository status to completed
 	now := time.Now()
 	repo.LastIndexedAt = &now
 	repo.Status = database.StatusCompleted
+	repo.LocalPath = &localPath
 
 	if err := h.db.UpdateRepository(ctx, repo); err != nil {
 		h.db.UpdateRepositoryStatus(ctx, repoID, database.StatusFailed)

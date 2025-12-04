@@ -2,7 +2,6 @@ package http
 
 import (
 	"fmt"
-	"git-repository-visualizer/internal/git"
 	"net/http"
 )
 
@@ -14,13 +13,9 @@ func (h *Handler) ListContributors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	contributorList, err := git.GetContributors(repoPath)
-	if err != nil {
-		Error(w, err, http.StatusInternalServerError)
-		return
-	}
+	contributorList := []interface{}{}
 
-	JSON(w, http.StatusOK, map[string][]*git.Contributor{
+	JSON(w, http.StatusOK, map[string][]interface{}{
 		"contributors": contributorList,
 	})
 }
