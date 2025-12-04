@@ -149,12 +149,12 @@ func (db *DB) UpdateRepositoryStatus(ctx context.Context, id int64, status Repos
 func (db *DB) UpdateRepository(ctx context.Context, repo *Repository) error {
 	query := `
 		UPDATE repositories
-		SET local_path = $1, status = $2, last_indexed_at = $3
-		WHERE id = $4
+		SET local_path = $1, status = $2, last_indexed_at = $3, default_branch = $4
+		WHERE id = $5
 		RETURNING updated_at
 	`
 
-	err := db.pool.QueryRow(ctx, query, repo.LocalPath, repo.Status, repo.LastIndexedAt, repo.ID).
+	err := db.pool.QueryRow(ctx, query, repo.LocalPath, repo.Status, repo.LastIndexedAt, repo.DefaultBranch, repo.ID).
 		Scan(&repo.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to update repository: %w", err)

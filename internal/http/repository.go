@@ -18,6 +18,10 @@ type CreateRepositoryRequest struct {
 	DefaultBranch string `json:"default_branch"`
 }
 
+type UpdateRepositoryRequest struct {
+	DefaultBranch string `json:"default_branch"`
+}
+
 // CreateRepository handles POST /api/v1/repositories
 func (h *Handler) CreateRepository(w http.ResponseWriter, r *http.Request) {
 	var req CreateRepositoryRequest
@@ -61,6 +65,47 @@ func (h *Handler) CreateRepository(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusCreated, repo)
+}
+
+// UpdateRepository handles PATCH /api/v1/repositories/{id}
+func (h *Handler) UpdateRepository(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		Error(w, fmt.Errorf("invalid repository ID"), http.StatusBadRequest)
+		return
+	}
+
+	// Validate ID is positive
+	v := validation.New()
+	v.GreaterThan("id", int(id), 0)
+	if err := v.Validate(); err != nil {
+		Error(w, err, http.StatusBadRequest)
+		return
+	}
+
+	var req UpdateRepositoryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		Error(w, fmt.Errorf("invalid request body"), http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	repo, err := h.db.GetRepository(ctx, id)
+	if err != nil {
+		Error(w, fmt.Errorf("repository not found"), http.StatusNotFound)
+		return
+	}
+
+	repo.DefaultBranch = req.DefaultBranch
+
+	// Update repository
+	if err := h.db.UpdateRepository(ctx, repo); err != nil {
+		Error(w, fmt.Errorf("failed to update repository: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	JSON(w, http.StatusOK, repo)
 }
 
 // GetRepository handles GET /api/v1/repositories/{id}
@@ -174,8 +219,8 @@ func (h *Handler) IndexRepository(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UpdateRepository handles POST /api/v1/repositories/{id}/update
-func (h *Handler) UpdateRepository(w http.ResponseWriter, r *http.Request) {
+// SyncRepository handles POST /api/v1/repositories/{id}/sync
+func (h *Handler) SyncRepository(w http.ResponseWriter, r *http.Request) {
 	idStr := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
