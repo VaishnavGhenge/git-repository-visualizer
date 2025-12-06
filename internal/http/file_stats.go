@@ -9,7 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func (h *Handler) ListContributors(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ListFileStats(w http.ResponseWriter, r *http.Request) {
 	repoIDStr := chi.URLParam(r, "repoID")
 	// Validate repoID is valid repository ID
 	repoID, err := strconv.ParseInt(repoIDStr, 10, 64)
@@ -28,7 +28,7 @@ func (h *Handler) ListContributors(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	limit, offset := h.GetLimitOffset(r)
 
-	contributors, err := h.db.GetContributorsByRepository(ctx, repoID, limit, offset)
+	fileStats, err := h.db.GetFileStatsByRepository(ctx, repoID, limit, offset)
 	if err != nil {
 		parsedErr := validation.ParseDatabaseError(err)
 		Error(w, parsedErr, http.StatusInternalServerError)
@@ -36,6 +36,6 @@ func (h *Handler) ListContributors(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, map[string]interface{}{
-		"contributors": contributors,
+		"fileStats": fileStats,
 	})
 }
