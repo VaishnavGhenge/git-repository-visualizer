@@ -3,6 +3,7 @@ package http
 import (
 	"net/http"
 
+	"git-repository-visualizer/internal/config"
 	"git-repository-visualizer/internal/database"
 	"git-repository-visualizer/internal/queue"
 
@@ -13,13 +14,15 @@ type Handler struct {
 	router    *chi.Mux
 	db        *database.DB
 	publisher *queue.Publisher
+	httpCfg   config.HTTPConfig
 }
 
-func NewHandler(db *database.DB, publisher *queue.Publisher) *Handler {
+func NewHandler(db *database.DB, publisher *queue.Publisher, httpCfg config.HTTPConfig) *Handler {
 	h := &Handler{
 		router:    chi.NewRouter(),
 		db:        db,
 		publisher: publisher,
+		httpCfg:   httpCfg,
 	}
 
 	// Apply global middleware
@@ -45,7 +48,7 @@ func (h *Handler) registerRoutes() {
 		r.Post("/repositories/{id}/sync", h.SyncRepository)
 
 		// Repository stats
-		r.Route("/repositories/{id}/stats", func(r chi.Router) {
+		r.Route("/repositories/{repoID}/stats", func(r chi.Router) {
 			r.Get("/contributors", h.ListContributors)
 		})
 

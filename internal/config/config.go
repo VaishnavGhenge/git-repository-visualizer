@@ -12,6 +12,7 @@ type Config struct {
 	Database DatabaseConfig
 	Redis    RedisConfig
 	Worker   WorkerConfig
+	HTTP     HTTPConfig
 }
 
 // Load reads all configuration from environment variables and returns the Config
@@ -21,6 +22,7 @@ func Load() *Config {
 		Database: loadDatabaseConfig(),
 		Redis:    loadRedisConfig(),
 		Worker:   loadWorkerConfig(),
+		HTTP:     loadHTTPConfig(),
 	}
 }
 

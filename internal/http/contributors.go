@@ -2,20 +2,41 @@ package http
 
 import (
 	"fmt"
+	"git-repository-visualizer/internal/validation"
 	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
 )
 
 func (h *Handler) ListContributors(w http.ResponseWriter, r *http.Request) {
-	repoPath := r.URL.Query().Get("repoPath")
-
-	if repoPath == "" {
-		Error(w, fmt.Errorf("repoPath query parameter is required"), http.StatusBadRequest)
+	repoIDStr := chi.URLParam(r, "repoID")
+	// Validate repoID is valid repository ID
+	repoID, err := strconv.ParseInt(repoIDStr, 10, 64)
+	if err != nil {
+		Error(w, fmt.Errorf("invalid repository ID: %w", err), http.StatusBadRequest)
 		return
 	}
 
-	contributorList := []interface{}{}
+	v := validation.New()
+	v.GreaterThan("repoID", int(repoID), 0)
+	if err := v.Validate(); err != nil {
+		Error(w, err, http.StatusBadRequest)
+		return
+	}
 
-	JSON(w, http.StatusOK, map[string][]interface{}{
-		"contributors": contributorList,
+	ctx := r.Context()
+	limit := h.httpCfg.LIMIT
+	offset := h.httpCfg.OFFSET
+
+	contributors, err := h.db.GetContributorsByRepository(ctx, repoID, limit, offset)
+	if err != nil {
+		parsedErr := validation.ParseDatabaseError(err)
+		Error(w, parsedErr, http.StatusInternalServerError)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"contributors": contributors,
 	})
 }
