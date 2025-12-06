@@ -64,7 +64,7 @@ func (h *JobHandler) handleIndexJob(ctx context.Context, job *queue.Job) error {
 	localPath := filepath.Join(h.storagePath, fmt.Sprintf("%d", repoID))
 
 	// Index the repository
-	if err := git.IndexRepository(ctx, repo.URL, localPath); err != nil {
+	if err := git.IndexRepository(ctx, h.db, repoID, repo.URL, localPath); err != nil {
 		h.db.UpdateRepositoryStatus(ctx, repoID, database.StatusFailed)
 		return fmt.Errorf("failed to index repository: %w", err)
 	}

@@ -73,13 +73,18 @@ func (db *DB) UpsertContributors(ctx context.Context, contributors []*Contributo
 	}
 
 	br := tx.SendBatch(ctx, batch)
-	defer br.Close()
 
 	for range contributors {
 		_, err := br.Exec()
 		if err != nil {
+			br.Close()
 			return fmt.Errorf("failed to execute batch: %w", err)
 		}
+	}
+
+	// Must close batch reader before committing transaction
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("failed to close batch: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
