@@ -29,8 +29,6 @@ func (db *DB) UpsertCommit(ctx context.Context, commit *Commit) error {
 		commit.AuthorName,
 		commit.Message,
 		commit.CommittedAt,
-		commit.Additions,
-		commit.Deletions,
 	).Scan(&commit.ID, &commit.CreatedAt)
 
 	if err != nil {
@@ -53,20 +51,18 @@ func (db *DB) UpsertCommits(ctx context.Context, commits []*Commit) error {
 	defer tx.Rollback(ctx)
 
 	query := `
-		INSERT INTO commits (repository_id, hash, author_email, author_name, message, committed_at, additions, deletions)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO commits (repository_id, hash, author_email, author_name, message, committed_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (repository_id, hash)
 		DO UPDATE SET
 			author_email = EXCLUDED.author_email,
 			author_name = EXCLUDED.author_name,
-			message = EXCLUDED.message,
-			additions = EXCLUDED.additions,
-			deletions = EXCLUDED.deletions
+			message = EXCLUDED.message
 	`
 
 	batch := &pgx.Batch{}
 	for _, c := range commits {
-		batch.Queue(query, c.RepositoryID, c.Hash, c.AuthorEmail, c.AuthorName, c.Message, c.CommittedAt, c.Additions, c.Deletions)
+		batch.Queue(query, c.RepositoryID, c.Hash, c.AuthorEmail, c.AuthorName, c.Message, c.CommittedAt)
 	}
 
 	br := tx.SendBatch(ctx, batch)
@@ -106,7 +102,7 @@ func (db *DB) DeleteCommitsByRepository(ctx context.Context, repositoryID int64)
 // GetCommitsByRepository retrieves commits for a repository with pagination
 func (db *DB) GetCommitsByRepository(ctx context.Context, repositoryID int64, limit, offset int) ([]*Commit, error) {
 	query := `
-		SELECT id, repository_id, hash, author_email, author_name, message, committed_at, additions, deletions, created_at
+		SELECT id, repository_id, hash, author_email, author_name, message, committed_at, created_at
 		FROM commits
 		WHERE repository_id = $1
 		ORDER BY committed_at DESC
@@ -130,8 +126,6 @@ func (db *DB) GetCommitsByRepository(ctx context.Context, repositoryID int64, li
 			&c.AuthorName,
 			&c.Message,
 			&c.CommittedAt,
-			&c.Additions,
-			&c.Deletions,
 			&c.CreatedAt,
 		)
 		if err != nil {

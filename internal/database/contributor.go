@@ -10,14 +10,11 @@ import (
 // UpsertContributor inserts or updates a contributor
 func (db *DB) UpsertContributor(ctx context.Context, contributor *Contributor) error {
 	query := `
-		INSERT INTO contributors (repository_id, email, name, commit_count, lines_added, lines_deleted, first_commit_at, last_commit_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO contributors (repository_id, email, name, first_commit_at, last_commit_at)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (repository_id, email)
 		DO UPDATE SET
 			name = EXCLUDED.name,
-			commit_count = EXCLUDED.commit_count,
-			lines_added = EXCLUDED.lines_added,
-			lines_deleted = EXCLUDED.lines_deleted,
 			first_commit_at = LEAST(contributors.first_commit_at, EXCLUDED.first_commit_at),
 			last_commit_at = GREATEST(contributors.last_commit_at, EXCLUDED.last_commit_at)
 		RETURNING id, created_at, updated_at
@@ -27,9 +24,6 @@ func (db *DB) UpsertContributor(ctx context.Context, contributor *Contributor) e
 		contributor.RepositoryID,
 		contributor.Email,
 		contributor.Name,
-		contributor.CommitCount,
-		contributor.LinesAdded,
-		contributor.LinesDeleted,
 		contributor.FirstCommitAt,
 		contributor.LastCommitAt,
 	).Scan(&contributor.ID, &contributor.CreatedAt, &contributor.UpdatedAt)
@@ -55,21 +49,18 @@ func (db *DB) UpsertContributors(ctx context.Context, contributors []*Contributo
 	defer tx.Rollback(ctx)
 
 	query := `
-		INSERT INTO contributors (repository_id, email, name, commit_count, lines_added, lines_deleted, first_commit_at, last_commit_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO contributors (repository_id, email, name, first_commit_at, last_commit_at)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (repository_id, email)
 		DO UPDATE SET
 			name = EXCLUDED.name,
-			commit_count = contributors.commit_count + EXCLUDED.commit_count,
-			lines_added = contributors.lines_added + EXCLUDED.lines_added,
-			lines_deleted = contributors.lines_deleted + EXCLUDED.lines_deleted,
 			first_commit_at = LEAST(contributors.first_commit_at, EXCLUDED.first_commit_at),
 			last_commit_at = GREATEST(contributors.last_commit_at, EXCLUDED.last_commit_at)
 	`
 
 	batch := &pgx.Batch{}
 	for _, c := range contributors {
-		batch.Queue(query, c.RepositoryID, c.Email, c.Name, c.CommitCount, c.LinesAdded, c.LinesDeleted, c.FirstCommitAt, c.LastCommitAt)
+		batch.Queue(query, c.RepositoryID, c.Email, c.Name, c.FirstCommitAt, c.LastCommitAt)
 	}
 
 	br := tx.SendBatch(ctx, batch)
@@ -97,11 +88,11 @@ func (db *DB) UpsertContributors(ctx context.Context, contributors []*Contributo
 // GetContributorsByRepository retrieves all contributors for a repository
 func (db *DB) GetContributorsByRepository(ctx context.Context, repositoryID int64, limit, offset int) ([]*Contributor, error) {
 	query := `
-		SELECT id, repository_id, email, name, commit_count, lines_added, lines_deleted, 
+		SELECT id, repository_id, email, name, 
 		       first_commit_at, last_commit_at, created_at, updated_at
 		FROM contributors
 		WHERE repository_id = $1
-		ORDER BY commit_count DESC
+		ORDER BY name ASC
 		LIMIT $2 OFFSET $3
 	`
 
@@ -119,9 +110,6 @@ func (db *DB) GetContributorsByRepository(ctx context.Context, repositoryID int6
 			&c.RepositoryID,
 			&c.Email,
 			&c.Name,
-			&c.CommitCount,
-			&c.LinesAdded,
-			&c.LinesDeleted,
 			&c.FirstCommitAt,
 			&c.LastCommitAt,
 			&c.CreatedAt,

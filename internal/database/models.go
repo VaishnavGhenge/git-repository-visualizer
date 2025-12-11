@@ -24,44 +24,51 @@ type Repository struct {
 	UpdatedAt     time.Time        `json:"updated_at"`
 }
 
-// Contributor represents a contributor to a repository
+// Contributor represents a developer identity found in the git log
 type Contributor struct {
 	ID            int64      `json:"id"`
 	RepositoryID  int64      `json:"repository_id"`
 	Email         string     `json:"email"`
 	Name          string     `json:"name"`
-	CommitCount   int        `json:"commit_count"`
-	LinesAdded    int        `json:"lines_added"`
-	LinesDeleted  int        `json:"lines_deleted"`
 	FirstCommitAt *time.Time `json:"first_commit_at,omitempty"`
 	LastCommitAt  *time.Time `json:"last_commit_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
+	// Note: Aggregate stats (CommitCount, LinesAdded) are removed to force
+	// granular calculation from the Commit/CommitFile tables.
 }
 
-// FileStat represents statistics for a file in a repository
-type FileStat struct {
-	ID             int64      `json:"id"`
-	RepositoryID   int64      `json:"repository_id"`
-	FilePath       string     `json:"file_path"`
-	TotalChanges   int        `json:"total_changes"`
-	LinesAdded     int        `json:"lines_added"`
-	LinesDeleted   int        `json:"lines_deleted"`
-	LastModifiedAt *time.Time `json:"last_modified_at,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+// File represents a file as it exists in the HEAD of the repository (Index)
+// This is used for "State" insights: "How big is this system?" "What languages?"
+type File struct {
+	ID           int64     `json:"id"`
+	RepositoryID int64     `json:"repository_id"`
+	Path         string    `json:"path"`
+	Language     string    `json:"language"` // e.g. "Go", "TypeScript" - inferred from extension
+	Lines        int       `json:"lines"`    // Lines of Code at HEAD
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// Commit represents a single commit in a repository
+// Commit represents a single point in the repository timeline
 type Commit struct {
 	ID           int64     `json:"id"`
 	RepositoryID int64     `json:"repository_id"`
 	Hash         string    `json:"hash"`
-	AuthorEmail  string    `json:"author_email"`
+	AuthorEmail  string    `json:"author_email"` // Denormalized for easier querying
 	AuthorName   string    `json:"author_name"`
 	Message      string    `json:"message"`
 	CommittedAt  time.Time `json:"committed_at"`
-	Additions    int       `json:"additions"`
-	Deletions    int       `json:"deletions"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// CommitFile records the modification of a specific file in a specific commit
+// This is the atomic unit of "Data" for insights like Churn, Hotspots, and Knowledge Map.
+type CommitFile struct {
+	ID           int64  `json:"id"`
+	CommitHash   string `json:"commit_hash"`
+	RepositoryID int64  `json:"repository_id"`
+	FilePath     string `json:"file_path"` // Captured at the time of commit
+	Additions    int    `json:"additions"`
+	Deletions    int    `json:"deletions"`
 }
