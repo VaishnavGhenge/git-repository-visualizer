@@ -4,13 +4,60 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
+	"time"
+
+	"git-repository-visualizer/internal/config"
 )
+
+// BusFactorOptions contains optional filters for bus factor calculation
+type BusFactorOptions struct {
+	Threshold       float64 // Ownership threshold (e.g., 0.5 = 50%)
+	ActiveDays      int     // Only count contributors active in last N days (0 = all time)
+	ExcludePatterns bool    // Whether to exclude files matching exclusion patterns
+}
 
 // GetBusFactor calculates the bus factor for a repository
 // Bus factor = minimum contributors who own threshold% of files
-func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, threshold float64) (*BusFactorResult, error) {
-	// Query: For each file, find the contributor with most additions (the "owner")
-	query := `
+func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, opts BusFactorOptions) (*BusFactorResult, error) {
+	// Build dynamic WHERE clauses
+	var conditions []string
+	var args []interface{}
+	argIndex := 1
+
+	conditions = append(conditions, fmt.Sprintf("cf.repository_id = $%d", argIndex))
+	args = append(args, repositoryID)
+	argIndex++
+
+	// Active contributors filter
+	var activeContributorFilter string
+	if opts.ActiveDays > 0 {
+		cutoffDate := time.Now().AddDate(0, 0, -opts.ActiveDays)
+		activeContributorFilter = fmt.Sprintf(`
+			AND c.author_email IN (
+				SELECT DISTINCT author_email FROM commits 
+				WHERE repository_id = $1 AND committed_at > $%d
+			)`, argIndex)
+		args = append(args, cutoffDate)
+		argIndex++
+	}
+
+	// File exclusion filter
+	var exclusionFilter string
+	if opts.ExcludePatterns {
+		patterns := config.GetExclusionPatterns()
+		if len(patterns) > 0 {
+			var notLikes []string
+			for _, pattern := range patterns {
+				notLikes = append(notLikes, fmt.Sprintf("cf.file_path NOT LIKE $%d", argIndex))
+				args = append(args, pattern)
+				argIndex++
+			}
+			exclusionFilter = " AND " + strings.Join(notLikes, " AND ")
+		}
+	}
+
+	query := fmt.Sprintf(`
 		WITH file_contributions AS (
 			SELECT 
 				cf.file_path,
@@ -19,7 +66,7 @@ func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, threshold fl
 				SUM(cf.additions) as total_additions
 			FROM commit_files cf
 			JOIN commits c ON c.hash = cf.commit_hash AND c.repository_id = cf.repository_id
-			WHERE cf.repository_id = $1
+			WHERE %s%s%s
 			GROUP BY cf.file_path, c.author_email, c.author_name
 		),
 		file_owners AS (
@@ -38,9 +85,9 @@ func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, threshold fl
 		FROM file_owners
 		GROUP BY author_email, author_name
 		ORDER BY files_owned DESC
-	`
+	`, strings.Join(conditions, " AND "), activeContributorFilter, exclusionFilter)
 
-	rows, err := db.pool.Query(ctx, query, repositoryID)
+	rows, err := db.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query file ownership: %w", err)
 	}
@@ -65,7 +112,7 @@ func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, threshold fl
 	if totalFiles == 0 {
 		return &BusFactorResult{
 			BusFactor:       0,
-			Threshold:       threshold,
+			Threshold:       opts.Threshold,
 			TotalFiles:      0,
 			TopContributors: []ContributorOwnership{},
 			RiskLevel:       "unknown",
@@ -77,7 +124,7 @@ func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, threshold fl
 		contributors[i].OwnershipPct = float64(contributors[i].FilesOwned) * 100.0 / float64(totalFiles)
 	}
 
-	// Sort by files owned descending (should already be sorted, but ensure)
+	// Sort by files owned descending
 	sort.Slice(contributors, func(i, j int) bool {
 		return contributors[i].FilesOwned > contributors[j].FilesOwned
 	})
@@ -85,7 +132,7 @@ func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, threshold fl
 	// Calculate bus factor: count contributors needed to reach threshold
 	busFactor := 0
 	cumulativeOwnership := 0.0
-	thresholdPct := threshold * 100.0
+	thresholdPct := opts.Threshold * 100.0
 
 	for _, c := range contributors {
 		busFactor++
@@ -105,7 +152,7 @@ func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, threshold fl
 
 	return &BusFactorResult{
 		BusFactor:       busFactor,
-		Threshold:       threshold,
+		Threshold:       opts.Threshold,
 		TotalFiles:      totalFiles,
 		TopContributors: contributors,
 		RiskLevel:       riskLevel,

@@ -2,6 +2,7 @@ package http
 
 import (
 	"fmt"
+	"git-repository-visualizer/internal/database"
 	"git-repository-visualizer/internal/validation"
 	"net/http"
 	"strconv"
@@ -25,18 +26,38 @@ func (h *Handler) GetBusFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse optional threshold parameter (default 0.5 = 50%)
-	threshold := 0.5
+	// Parse query parameters with defaults
+	opts := database.BusFactorOptions{
+		Threshold:       0.5,  // Default 50%
+		ActiveDays:      0,    // Default: all time
+		ExcludePatterns: true, // Default: exclude generated files
+	}
+
+	// Parse threshold (0-1)
 	if thresholdStr := r.URL.Query().Get("threshold"); thresholdStr != "" {
 		if parsed, err := strconv.ParseFloat(thresholdStr, 64); err == nil {
 			if parsed > 0 && parsed <= 1 {
-				threshold = parsed
+				opts.Threshold = parsed
 			}
 		}
 	}
 
+	// Parse days filter (active contributors in last N days)
+	if daysStr := r.URL.Query().Get("days"); daysStr != "" {
+		if parsed, err := strconv.Atoi(daysStr); err == nil {
+			if parsed > 0 {
+				opts.ActiveDays = parsed
+			}
+		}
+	}
+
+	// Parse exclude filter (whether to exclude generated files)
+	if excludeStr := r.URL.Query().Get("exclude"); excludeStr != "" {
+		opts.ExcludePatterns = excludeStr != "false"
+	}
+
 	ctx := r.Context()
-	result, err := h.db.GetBusFactor(ctx, repoID, threshold)
+	result, err := h.db.GetBusFactor(ctx, repoID, opts)
 	if err != nil {
 		parsedErr := validation.ParseDatabaseError(err)
 		Error(w, parsedErr, http.StatusInternalServerError)
