@@ -51,6 +51,7 @@ func (h *Handler) registerRoutes() {
 		r.Route("/repositories/{repoID}/stats", func(r chi.Router) {
 			r.Get("/contributors", h.ListContributors)
 			r.Get("/files", h.ListFiles)
+			r.Get("/bus-factor", h.GetBusFactor)
 		})
 
 		// Queue management
