@@ -10,15 +10,12 @@ import (
 // UpsertCommit inserts or updates a single commit
 func (db *DB) UpsertCommit(ctx context.Context, commit *Commit) error {
 	query := `
-		INSERT INTO commits (repository_id, hash, author_email, author_name, message, committed_at, additions, deletions)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO commits (repository_id, hash, author_email, author_name, message, committed_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (repository_id, hash)
 		DO UPDATE SET
-			author_email = EXCLUDED.author_email,
 			author_name = EXCLUDED.author_name,
-			message = EXCLUDED.message,
-			additions = EXCLUDED.additions,
-			deletions = EXCLUDED.deletions
+			message = EXCLUDED.message
 		RETURNING id, created_at
 	`
 
