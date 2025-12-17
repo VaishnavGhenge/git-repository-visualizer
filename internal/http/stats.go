@@ -2,7 +2,7 @@ package http
 
 import (
 	"fmt"
-	"git-repository-visualizer/internal/database"
+	"git-repository-visualizer/internal/stats"
 	"git-repository-visualizer/internal/validation"
 	"net/http"
 	"strconv"
@@ -27,7 +27,7 @@ func (h *Handler) GetBusFactor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse query parameters with defaults
-	opts := database.BusFactorOptions{
+	opts := stats.BusFactorOptions{
 		Threshold:       0.5,  // Default 50%
 		ActiveDays:      0,    // Default: all time
 		ExcludePatterns: true, // Default: exclude generated files
@@ -57,7 +57,7 @@ func (h *Handler) GetBusFactor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	result, err := h.db.GetBusFactor(ctx, repoID, opts)
+	result, err := stats.CalculateBusFactor(ctx, h.db.Pool(), repoID, opts)
 	if err != nil {
 		parsedErr := validation.ParseDatabaseError(err)
 		Error(w, parsedErr, http.StatusInternalServerError)

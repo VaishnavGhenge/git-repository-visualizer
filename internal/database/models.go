@@ -72,20 +72,3 @@ type CommitFile struct {
 	Additions    int    `json:"additions"`
 	Deletions    int    `json:"deletions"`
 }
-
-// BusFactorResult holds the calculated bus factor and ownership data
-type BusFactorResult struct {
-	BusFactor       int                    `json:"bus_factor"`
-	Threshold       float64                `json:"threshold"` // e.g., 0.5 for 50%
-	TotalFiles      int                    `json:"total_files"`
-	TopContributors []ContributorOwnership `json:"top_contributors"`
-	RiskLevel       string                 `json:"risk_level"` // "high", "medium", "low"
-}
-
-// ContributorOwnership represents a contributor's file ownership stats
-type ContributorOwnership struct {
-	Email        string  `json:"email"`
-	Name         string  `json:"name"`
-	FilesOwned   int     `json:"files_owned"`
-	OwnershipPct float64 `json:"ownership_pct"`
-}

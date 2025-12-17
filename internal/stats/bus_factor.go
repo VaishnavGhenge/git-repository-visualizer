@@ -1,4 +1,4 @@
-package database
+package stats
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"git-repository-visualizer/internal/config"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // BusFactorOptions contains optional filters for bus factor calculation
@@ -17,9 +19,26 @@ type BusFactorOptions struct {
 	ExcludePatterns bool    // Whether to exclude files matching exclusion patterns
 }
 
-// GetBusFactor calculates the bus factor for a repository
+// BusFactorResult holds the calculated bus factor and ownership data
+type BusFactorResult struct {
+	BusFactor       int                    `json:"bus_factor"`
+	Threshold       float64                `json:"threshold"` // e.g., 0.5 for 50%
+	TotalFiles      int                    `json:"total_files"`
+	TopContributors []ContributorOwnership `json:"top_contributors"`
+	RiskLevel       string                 `json:"risk_level"` // "high", "medium", "low"
+}
+
+// ContributorOwnership represents a contributor's file ownership stats
+type ContributorOwnership struct {
+	Email        string  `json:"email"`
+	Name         string  `json:"name"`
+	FilesOwned   int     `json:"files_owned"`
+	OwnershipPct float64 `json:"ownership_pct"`
+}
+
+// CalculateBusFactor calculates the bus factor for a repository
 // Bus factor = minimum contributors who own threshold% of files
-func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, opts BusFactorOptions) (*BusFactorResult, error) {
+func CalculateBusFactor(ctx context.Context, pool *pgxpool.Pool, repositoryID int64, opts BusFactorOptions) (*BusFactorResult, error) {
 	// Build dynamic WHERE clauses
 	var conditions []string
 	var args []interface{}
@@ -71,9 +90,9 @@ func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, opts BusFact
 		),
 		file_owners AS (
 			SELECT DISTINCT ON (file_path) 
-				file_path,
-				author_email,
-				author_name
+			file_path,
+			author_email,
+			author_name
 			FROM file_contributions
 			WHERE total_additions > 0
 			ORDER BY file_path, total_additions DESC
@@ -87,7 +106,7 @@ func (db *DB) GetBusFactor(ctx context.Context, repositoryID int64, opts BusFact
 		ORDER BY files_owned DESC
 	`, strings.Join(conditions, " AND "), activeContributorFilter, exclusionFilter)
 
-	rows, err := db.pool.Query(ctx, query, args...)
+	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query file ownership: %w", err)
 	}
