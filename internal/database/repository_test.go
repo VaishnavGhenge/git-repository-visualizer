@@ -19,13 +19,16 @@ func TestCreateRepository(t *testing.T) {
 	ctx := context.Background()
 
 	userID := int64(1)
+	name := "test/repo"
+	description := "A test repo"
+	provider := "github"
 	repo := &Repository{
 		UserID:      &userID,
 		URL:         "https://github.com/test/repo",
-		Name:        "test/repo",
-		Description: "A test repo",
+		Name:        &name,
+		Description: &description,
 		IsPrivate:   true,
-		Provider:    "github",
+		Provider:    &provider,
 		Status:      StatusDiscovered,
 	}
 

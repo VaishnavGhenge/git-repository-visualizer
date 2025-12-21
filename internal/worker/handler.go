@@ -198,12 +198,16 @@ func (h *JobHandler) handleDiscoverJob(ctx context.Context, job *queue.Job) erro
 			continue
 		}
 
+		name := r.FullName
+		description := r.Description
+		provider := providerStr
+
 		repo := &database.Repository{
 			URL:           r.URL,
-			Name:          r.FullName,
-			Description:   r.Description,
+			Name:          &name,
+			Description:   &description,
 			IsPrivate:     r.IsPrivate,
-			Provider:      providerStr,
+			Provider:      &provider,
 			UserID:        &userID,
 			Status:        database.StatusDiscovered,
 			DefaultBranch: r.DefaultBranch,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"git-repository-visualizer/internal/config"
 
@@ -104,42 +105,64 @@ func (p *gitHubProvider) FetchProfile(ctx context.Context, token *oauth2.Token) 
 
 func (p *gitHubProvider) FetchRepositories(ctx context.Context, token *oauth2.Token) ([]RemoteRepo, error) {
 	client := p.config.Client(ctx, token)
-	resp, err := client.Get("https://api.github.com/user/repos?per_page=100&sort=updated")
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch github repositories: %w", err)
-	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("github api returned status %d", resp.StatusCode)
-	}
+	var allRepos []RemoteRepo
+	page := 1
+	perPage := 100
 
-	var data []struct {
-		ID            int    `json:"id"`
-		Name          string `json:"name"`
-		FullName      string `json:"full_name"`
-		Description   string `json:"description"`
-		HTMLURL       string `json:"html_url"`
-		DefaultBranch string `json:"default_branch"`
-		Private       bool   `json:"private"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, fmt.Errorf("failed to decode github repositories: %w", err)
-	}
-
-	repos := make([]RemoteRepo, len(data))
-	for i, r := range data {
-		repos[i] = RemoteRepo{
-			ID:            fmt.Sprintf("%d", r.ID),
-			Name:          r.Name,
-			FullName:      r.FullName,
-			Description:   r.Description,
-			URL:           r.HTMLURL,
-			DefaultBranch: r.DefaultBranch,
-			IsPrivate:     r.Private,
+	for {
+		url := fmt.Sprintf("https://api.github.com/user/repos?per_page=%d&page=%d&sort=pushed&direction=desc", perPage, page)
+		resp, err := client.Get(url)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch github repositories: %w", err)
 		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("github api returned status %d", resp.StatusCode)
+		}
+
+		var data []struct {
+			ID            int        `json:"id"`
+			Name          string     `json:"name"`
+			FullName      string     `json:"full_name"`
+			Description   string     `json:"description"`
+			HTMLURL       string     `json:"html_url"`
+			DefaultBranch string     `json:"default_branch"`
+			Private       bool       `json:"private"`
+			PushedAt      *time.Time `json:"pushed_at"`
+		}
+
+		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to decode github repositories: %w", err)
+		}
+		resp.Body.Close()
+
+		if len(data) == 0 {
+			break
+		}
+
+		for _, r := range data {
+			allRepos = append(allRepos, RemoteRepo{
+				ID:            fmt.Sprintf("%d", r.ID),
+				Name:          r.Name,
+				FullName:      r.FullName,
+				Description:   r.Description,
+				URL:           r.HTMLURL,
+				DefaultBranch: r.DefaultBranch,
+				IsPrivate:     r.Private,
+				PushedAt:      r.PushedAt,
+			})
+		}
+
+		// If we got fewer than perPage, we're on the last page
+		if len(data) < perPage {
+			break
+		}
+
+		page++
 	}
 
-	return repos, nil
+	return allRepos, nil
 }

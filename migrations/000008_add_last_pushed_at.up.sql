@@ -1,0 +1,2 @@
+ALTER TABLE repositories
+ADD COLUMN last_pushed_at TIMESTAMP WITH TIME ZONE;

@@ -60,23 +60,32 @@ func (h *Handler) registerRoutes() {
 		r.Group(func(r chi.Router) {
 			r.Use(h.AuthMiddleware)
 
-			r.Post("/repositories", h.CreateRepository)
-			r.Patch("/repositories/{id}", h.UpdateRepository)
-			r.Get("/repositories", h.ListRepositories)
-			r.Get("/repositories/{id}", h.GetRepository)
-			r.Post("/repositories/{id}/index", h.IndexRepository)
-			r.Post("/repositories/{id}/sync", h.SyncRepository)
-
-			// Provider-specific features
+			// Provider specific
 			r.Get("/providers/{provider}/repositories", h.GetProviderRepositories)
 
-			// Repository stats
-			r.Route("/repositories/{repoID}/stats", func(r chi.Router) {
-				r.Use(h.ValidateRepositoryStatus)
-				r.Get("/contributors", h.ListContributors)
-				r.Get("/files", h.ListFiles)
-				r.Get("/bus-factor", h.GetBusFactor)
-				r.Get("/churn", h.GetChurnStats)
+			r.Post("/repositories", h.CreateRepository)
+			r.Post("/repositories/sync", h.SyncUserRepositories)
+			r.Get("/repositories", h.ListRepositories)
+
+			// Routes requiring ownership
+			r.Group(func(r chi.Router) {
+				// Internal handlers now check ownership strictly using GetRepositoryForUser
+				r.Patch("/repositories/{id}", h.UpdateRepository)
+				r.Get("/repositories/{id}", h.GetRepository)
+				r.Get("/repositories/{id}/status", h.GetRepositoryStatus)
+				r.Post("/repositories/{id}/index", h.IndexRepository)
+				r.Post("/repositories/{id}/sync", h.SyncRepository)
+
+				// Repository stats
+				r.Route("/repositories/{repoID}/stats", func(r chi.Router) {
+					// We still rely on middleware here as stats handlers are not yet updated
+					r.Use(h.RequireRepoOwnership)
+					r.Use(h.ValidateRepositoryStatus)
+					r.Get("/contributors", h.ListContributors)
+					r.Get("/files", h.ListFiles)
+					r.Get("/bus-factor", h.GetBusFactor)
+					r.Get("/churn", h.GetChurnStats)
+				})
 			})
 		})
 

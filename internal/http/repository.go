@@ -10,6 +10,7 @@ import (
 	"git-repository-visualizer/internal/validation"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/oauth2"
 )
 
 // CreateRepositoryRequest represents the request body for creating a repository
@@ -50,10 +51,17 @@ func (h *Handler) CreateRepository(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	user := GetUserFromContext(ctx)
+	if user == nil {
+		Error(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
 	repo := &database.Repository{
 		URL:           req.URL,
 		DefaultBranch: req.DefaultBranch,
 		Status:        database.StatusPending,
+		UserID:        &user.ID,
 	}
 
 	// Create repository - database errors (like unique violations) are handled by Error()
@@ -91,8 +99,15 @@ func (h *Handler) UpdateRepository(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	repo, err := h.db.GetRepository(ctx, id)
+	user := GetUserFromContext(ctx)
+	if user == nil {
+		Error(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
+	repo, err := h.db.GetRepositoryForUser(ctx, id, user.ID)
 	if err != nil {
+		// If not found for user, return 404 (don't leak existence)
 		Error(w, fmt.Errorf("repository not found"), http.StatusNotFound)
 		return
 	}
@@ -126,7 +141,13 @@ func (h *Handler) GetRepository(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	repo, err := h.db.GetRepository(ctx, id)
+	user := GetUserFromContext(ctx)
+	if user == nil {
+		Error(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
+	repo, err := h.db.GetRepositoryForUser(ctx, id, user.ID)
 	if err != nil {
 		parsedErr := validation.ParseDatabaseError(err)
 
@@ -141,6 +162,38 @@ func (h *Handler) GetRepository(w http.ResponseWriter, r *http.Request) {
 	}
 
 	JSON(w, http.StatusOK, repo)
+}
+
+// GetRepositoryStatus handles GET /api/v1/repositories/{id}/status
+func (h *Handler) GetRepositoryStatus(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		Error(w, fmt.Errorf("invalid repository ID"), http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	user := GetUserFromContext(ctx)
+	if user == nil {
+		Error(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
+	status, err := h.db.GetRepositoryStatus(ctx, id, user.ID)
+	if err != nil {
+		if validation.IsNotFound(err) {
+			Error(w, fmt.Errorf("repository not found"), http.StatusNotFound)
+			return
+		}
+		Error(w, fmt.Errorf("failed to get repository status: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	JSON(w, http.StatusOK, map[string]interface{}{
+		"status":        status,
+		"repository_id": id,
+	})
 }
 
 // ListRepositories handles GET /api/v1/repositories
@@ -172,7 +225,13 @@ func (h *Handler) ListRepositories(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	repos, err := h.db.ListRepositories(ctx, limit, offset)
+	user := GetUserFromContext(ctx)
+	if user == nil {
+		Error(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
+	repos, err := h.db.ListRepositories(ctx, user.ID, limit, offset)
 	if err != nil {
 		parsedErr := validation.ParseDatabaseError(err)
 		Error(w, parsedErr, http.StatusInternalServerError)
@@ -192,9 +251,14 @@ func (h *Handler) IndexRepository(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	user := GetUserFromContext(ctx)
+	if user == nil {
+		Error(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
+		return
+	}
 
-	// Verify repository exists
-	repo, err := h.db.GetRepository(ctx, id)
+	// Verify repository exists and belongs to user
+	repo, err := h.db.GetRepositoryForUser(ctx, id, user.ID)
 	if err != nil {
 		Error(w, fmt.Errorf("repository not found"), http.StatusNotFound)
 		return
@@ -229,9 +293,14 @@ func (h *Handler) SyncRepository(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	user := GetUserFromContext(ctx)
+	if user == nil {
+		Error(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
+		return
+	}
 
-	// Verify repository exists
-	repo, err := h.db.GetRepository(ctx, id)
+	// Verify repository exists and belongs to user
+	repo, err := h.db.GetRepositoryForUser(ctx, id, user.ID)
 	if err != nil {
 		Error(w, fmt.Errorf("repository not found"), http.StatusNotFound)
 		return
@@ -263,4 +332,101 @@ func (h *Handler) GetQueueLength(w http.ResponseWriter, r *http.Request) {
 	JSON(w, http.StatusOK, map[string]interface{}{
 		"queue_length": length,
 	})
+}
+
+// SyncUserRepositories handles POST /api/v1/repositories/sync
+func (h *Handler) SyncUserRepositories(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	user := GetUserFromContext(ctx)
+	if user == nil {
+		Error(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
+		return
+	}
+
+	// 1. Get all user identities
+	identities, err := h.db.GetUserIdentities(ctx, user.ID)
+	if err != nil {
+		Error(w, fmt.Errorf("failed to load user identities: %w", err), http.StatusInternalServerError)
+		return
+	}
+
+	if len(identities) == 0 {
+		JSON(w, http.StatusOK, map[string]interface{}{
+			"message": "No linked providers found",
+			"synced":  0,
+		})
+		return
+	}
+
+	totalSynced := 0
+	errors := []string{}
+
+	// 2. Iterate over identities and fetch repos
+	for _, identity := range identities {
+		provider, err := h.authRegistry.Get(identity.Provider)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: provider not configured", identity.Provider))
+			continue
+		}
+
+		// Reconstruct token structure from DB
+		token := &oauth2.Token{
+			AccessToken:  *identity.AccessToken,
+			TokenType:    "Bearer",
+			RefreshToken: "", // Note: We might need refresh token handling if access token expired
+		}
+		if identity.RefreshToken != nil {
+			token.RefreshToken = *identity.RefreshToken
+		}
+		if identity.TokenExpiry != nil {
+			token.Expiry = *identity.TokenExpiry
+		}
+
+		// Fetch repositories from provider
+		remoteRepos, err := provider.FetchRepositories(ctx, token)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", identity.Provider, err))
+			continue
+		}
+
+		// 3. Upsert fetched repositories
+		for _, remote := range remoteRepos {
+			name := remote.FullName
+			if name == "" {
+				name = remote.Name
+			}
+			desc := remote.Description
+			providerStr := identity.Provider
+
+			repo := &database.Repository{
+				URL:           remote.URL,
+				UserID:        &user.ID,
+				Name:          &name,
+				Description:   &desc,
+				IsPrivate:     remote.IsPrivate,
+				Provider:      &providerStr,
+				DefaultBranch: remote.DefaultBranch,
+				Status:        database.StatusDiscovered,
+				LastPushedAt:  remote.PushedAt,
+			}
+
+			// We use UpsertRepository which handles ON CONFLICT DO UPDATE
+			if err := h.db.UpsertRepository(ctx, repo); err != nil {
+				// Log error but continue syncing other repos
+				// In production you might want structured logging here
+				continue
+			}
+			totalSynced++
+		}
+	}
+
+	response := map[string]interface{}{
+		"message": fmt.Sprintf("Synced %d repositories", totalSynced),
+		"synced":  totalSynced,
+	}
+	if len(errors) > 0 {
+		response["errors"] = errors
+	}
+
+	JSON(w, http.StatusOK, response)
 }

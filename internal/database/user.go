@@ -131,3 +131,32 @@ func (db *DB) GetUserIdentity(ctx context.Context, userID int64, provider string
 	}
 	return identity, nil
 }
+
+// GetUserIdentities retrieves all identities for a user
+func (db *DB) GetUserIdentities(ctx context.Context, userID int64) ([]*UserIdentity, error) {
+	query := `
+		SELECT id, user_id, provider, provider_user_id, access_token, refresh_token, token_expiry, created_at, provider_username
+		FROM user_identities
+		WHERE user_id = $1
+	`
+	rows, err := db.pool.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user identities: %w", err)
+	}
+	defer rows.Close()
+
+	var identities []*UserIdentity
+	for rows.Next() {
+		identity := &UserIdentity{}
+		err := rows.Scan(
+			&identity.ID, &identity.UserID, &identity.Provider, &identity.ProviderUserID,
+			&identity.AccessToken, &identity.RefreshToken, &identity.TokenExpiry, &identity.CreatedAt,
+			&identity.ProviderUsername,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan identity: %w", err)
+		}
+		identities = append(identities, identity)
+	}
+	return identities, nil
+}

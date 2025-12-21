@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"git-repository-visualizer/internal/config"
 
@@ -31,13 +32,14 @@ type Provider interface {
 
 // RemoteRepo represents a repository found on a git hosting provider
 type RemoteRepo struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	FullName      string `json:"full_name"`
-	Description   string `json:"description"`
-	URL           string `json:"url"`
-	DefaultBranch string `json:"default_branch"`
-	IsPrivate     bool   `json:"is_private"`
+	ID            string     `json:"id"`
+	Name          string     `json:"name"`
+	FullName      string     `json:"full_name"`
+	Description   string     `json:"description"`
+	URL           string     `json:"url"`
+	DefaultBranch string     `json:"default_branch"`
+	IsPrivate     bool       `json:"is_private"`
+	PushedAt      *time.Time `json:"pushed_at"`
 }
 
 // Registry maintains a set of available authentication providers

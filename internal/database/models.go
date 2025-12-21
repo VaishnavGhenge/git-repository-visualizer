@@ -17,14 +17,15 @@ const (
 type Repository struct {
 	ID            int64            `json:"id"`
 	UserID        *int64           `json:"user_id,omitempty"` // Owner of the repository
-	Name          string           `json:"name"`              // Human-readable name
-	Description   string           `json:"description"`
+	Name          *string          `json:"name"`              // Human-readable name
+	Description   *string          `json:"description"`
 	URL           string           `json:"url"`
 	IsPrivate     bool             `json:"is_private"`
-	Provider      string           `json:"provider,omitempty"` // 'github', 'google', etc.
+	Provider      *string          `json:"provider,omitempty"` // 'github', 'google', etc.
 	LocalPath     *string          `json:"local_path,omitempty"`
 	DefaultBranch string           `json:"default_branch"`
 	Status        RepositoryStatus `json:"status"`
+	LastPushedAt  *time.Time       `json:"last_pushed_at,omitempty"`
 	LastIndexedAt *time.Time       `json:"last_indexed_at,omitempty"`
 	CreatedAt     time.Time        `json:"created_at"`
 	UpdatedAt     time.Time        `json:"updated_at"`

@@ -32,6 +32,55 @@ func (db *DB) CreateRepository(ctx context.Context, repo *Repository) error {
 	return nil
 }
 
+// UpsertRepository creates or updates a repository record
+func (db *DB) UpsertRepository(ctx context.Context, repo *Repository) error {
+	// Try to find existing repository by URL first
+	// Note: We're using URL as the unique constraint here, which might be slightly risky if providers change URLs,
+	// but it's the most common stable identifier for us currently.
+
+	query := `
+		INSERT INTO repositories (url, status, default_branch, user_id, name, description, is_private, provider, local_path, last_pushed_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (url) DO UPDATE SET
+			default_branch = EXCLUDED.default_branch,
+			user_id = EXCLUDED.user_id,
+			name = EXCLUDED.name,
+			description = EXCLUDED.description,
+			is_private = EXCLUDED.is_private,
+			provider = EXCLUDED.provider,
+			last_pushed_at = EXCLUDED.last_pushed_at,
+			updated_at = NOW()
+		RETURNING id, status, local_path, last_indexed_at, created_at, updated_at
+	`
+
+	defaultBranch := repo.DefaultBranch
+	if defaultBranch == "" {
+		defaultBranch = "main"
+	}
+
+	err := db.pool.QueryRow(ctx, query,
+		repo.URL,
+		repo.Status, // If new, use this status (likely 'discovered' or 'pending')
+		defaultBranch,
+		repo.UserID,
+		repo.Name,
+		repo.Description,
+		repo.IsPrivate,
+		repo.Provider,
+		repo.LocalPath,
+		repo.LastPushedAt,
+	).Scan(
+		&repo.ID, &repo.Status, &repo.LocalPath, &repo.LastIndexedAt,
+		&repo.CreatedAt, &repo.UpdatedAt,
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to upsert repository: %w", err)
+	}
+
+	return nil
+}
+
 // GetRepository retrieves a repository by ID
 func (db *DB) GetRepository(ctx context.Context, id int64) (*Repository, error) {
 	query := `
@@ -54,6 +103,50 @@ func (db *DB) GetRepository(ctx context.Context, id int64) (*Repository, error) 
 	}
 
 	return repo, nil
+}
+
+// GetRepositoryForUser retrieves a repository by ID ensuring it belongs to the given user
+func (db *DB) GetRepositoryForUser(ctx context.Context, id int64, userID int64) (*Repository, error) {
+	query := `
+		SELECT id, url, local_path, default_branch, status, last_indexed_at, created_at, updated_at, 
+		       user_id, name, description, is_private, provider
+		FROM repositories
+		WHERE id = $1 AND user_id = $2
+	`
+
+	repo := &Repository{}
+	err := db.pool.QueryRow(ctx, query, id, userID).Scan(
+		&repo.ID, &repo.URL, &repo.LocalPath, &repo.DefaultBranch, &repo.Status, &repo.LastIndexedAt,
+		&repo.CreatedAt, &repo.UpdatedAt, &repo.UserID, &repo.Name, &repo.Description, &repo.IsPrivate, &repo.Provider,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("failed to get repository for user: %w", err)
+	}
+
+	return repo, nil
+}
+
+// GetRepositoryStatus retrieves just the status of a repository for a user
+func (db *DB) GetRepositoryStatus(ctx context.Context, id int64, userID int64) (RepositoryStatus, error) {
+	query := `
+		SELECT status
+		FROM repositories
+		WHERE id = $1 AND user_id = $2
+	`
+
+	var status RepositoryStatus
+	err := db.pool.QueryRow(ctx, query, id, userID).Scan(&status)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("failed to get repository status: %w", err)
+	}
+
+	return status, nil
 }
 
 // GetRepositoryByURL retrieves a repository by its URL
@@ -80,17 +173,18 @@ func (db *DB) GetRepositoryByURL(ctx context.Context, url string) (*Repository, 
 	return repo, nil
 }
 
-// ListRepositories retrieves all repositories with pagination
-func (db *DB) ListRepositories(ctx context.Context, limit, offset int) ([]*Repository, error) {
+// ListRepositories retrieves all repositories for a user with pagination
+func (db *DB) ListRepositories(ctx context.Context, userID int64, limit, offset int) ([]*Repository, error) {
 	query := `
 		SELECT id, url, local_path, default_branch, status, last_indexed_at, created_at, updated_at,
 		       user_id, name, description, is_private, provider
 		FROM repositories
-		ORDER BY created_at DESC
-		LIMIT $1 OFFSET $2
+		WHERE user_id = $1
+		ORDER BY last_pushed_at DESC NULLS LAST, created_at DESC
+		LIMIT $2 OFFSET $3
 	`
 
-	rows, err := db.pool.Query(ctx, query, limit, offset)
+	rows, err := db.pool.Query(ctx, query, userID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list repositories: %w", err)
 	}

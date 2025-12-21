@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"git-repository-visualizer/internal/database"
+	"git-repository-visualizer/internal/validation"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type contextKey string
@@ -94,5 +98,54 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 
 		ctx := context.WithValue(r.Context(), userKey, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// RequireRepoOwnership middleware checks if the authenticated user owns the repository
+func (h *Handler) RequireRepoOwnership(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		repoIDStr := chi.URLParam(r, "repoID")
+		if repoIDStr == "" {
+			// Fallback to "id" if "repoID" is not found
+			repoIDStr = chi.URLParam(r, "id")
+		}
+
+		if repoIDStr == "" {
+			// If no repo ID in path, potentially skip or error?
+			// Assuming this middleware is only used on routes with :id or :repoID
+			Error(w, fmt.Errorf("repository ID required"), http.StatusBadRequest)
+			return
+		}
+
+		repoID, err := strconv.ParseInt(repoIDStr, 10, 64)
+		if err != nil {
+			Error(w, fmt.Errorf("invalid repository ID: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		ctx := r.Context()
+		user := GetUserFromContext(ctx)
+		if user == nil {
+			Error(w, fmt.Errorf("unauthorized"), http.StatusUnauthorized)
+			return
+		}
+
+		repo, err := h.db.GetRepository(ctx, repoID)
+		if err != nil {
+			parsedErr := validation.ParseDatabaseError(err)
+			// Return 404 to avoid leaking existence of repos not owned by user?
+			// Or simple not found.
+			Error(w, parsedErr, http.StatusNotFound)
+			return
+		}
+
+		// Check ownership
+		if repo.UserID == nil || *repo.UserID != user.ID {
+			// Return 404 to assume privacy by default
+			Error(w, fmt.Errorf("repository not found"), http.StatusNotFound)
+			return
+		}
+
+		next.ServeHTTP(w, r)
 	})
 }
