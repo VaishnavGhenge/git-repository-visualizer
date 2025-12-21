@@ -85,6 +85,7 @@ func (h *Handler) registerRoutes() {
 					r.Get("/files", h.ListFiles)
 					r.Get("/bus-factor", h.GetBusFactor)
 					r.Get("/churn", h.GetChurnStats)
+					r.Get("/commit-activity", h.GetCommitActivity)
 				})
 			})
 		})

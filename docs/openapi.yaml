@@ -1,0 +1,327 @@
+openapi: 3.0.0
+info:
+  title: Git Visualizer API
+  description: Backend API for the Git Repository Visualizer application.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local Development Server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Repository:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        url:
+          type: string
+        is_private:
+          type: boolean
+        provider:
+          type: string
+        local_path:
+          type: string
+        default_branch:
+          type: string
+        status:
+          type: string
+          enum: [discovered, pending, indexing, completed, failed]
+        last_pushed_at:
+          type: string
+          format: date-time
+        last_indexed_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RepositoryStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [discovered, pending, indexing, completed, failed]
+        repository_id:
+          type: integer
+          format: int64
+
+    SyncResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        synced:
+          type: integer
+        errors:
+          type: array
+          items:
+            type: string
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+security:
+  - BearerAuth: []
+
+paths:
+  /repositories:
+    get:
+      summary: List all repositories
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: A list of repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Repository"
+        "500":
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: Manually add a repository
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                default_branch:
+                  type: string
+      responses:
+        "201":
+          description: Repository created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+        "400":
+          description: Invalid input
+
+  /repositories/sync:
+    post:
+      summary: Sync repositories from all connected providers
+      description: Fetches and updates repositories from GitHub, Google, etc.
+      responses:
+        "200":
+          description: Sync completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResponse"
+
+  /repositories/{id}:
+    get:
+      summary: Get details of a specific repository
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Repository details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+        "404":
+          description: Repository not found
+    patch:
+      summary: Update repository settings
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                default_branch:
+                  type: string
+      responses:
+        "200":
+          description: Repository updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+
+  /repositories/{id}/status:
+    get:
+      summary: Get current indexing status
+      description: Lightweight endpoint to poll status
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Current status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositoryStatus"
+        "404":
+          description: Repository not found
+
+  /repositories/{id}/index:
+    post:
+      summary: Trigger indexing for a repository
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Indexing job queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  repository_id:
+                    type: integer
+                  repository:
+                    $ref: "#/components/schemas/Repository"
+
+  /repositories/{id}/sync:
+    post:
+      summary: Trigger sync for a specific repository
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "202":
+          description: Update job queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  repository_id:
+                    type: integer
+                  repository:
+                    $ref: "#/components/schemas/Repository"
+
+  /queue/length:
+    get:
+      summary: Get background job queue length
+      responses:
+        "200":
+          description: Queue length
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queue_length:
+                    type: integer
+  /repositories/{id}/stats/contributors:
+    get:
+      summary: Get repository contributors
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of contributors
+
+  /repositories/{id}/stats/bus-factor:
+    get:
+      summary: Get bus factor analysis
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Bus factor stats
+
+  /repositories/{id}/stats/churn:
+    get:
+      summary: Get high churn files
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of high churn files
+
+  /repositories/{id}/stats/commit-activity:
+    get:
+      summary: Get daily commit activity
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Daily commit counts

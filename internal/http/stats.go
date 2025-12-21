@@ -110,3 +110,38 @@ func (h *Handler) GetChurnStats(w http.ResponseWriter, r *http.Request) {
 
 	JSON(w, http.StatusOK, result)
 }
+
+// GetCommitActivity returns daily commit counts
+func (h *Handler) GetCommitActivity(w http.ResponseWriter, r *http.Request) {
+    repoIDStr := chi.URLParam(r, "repoID")
+    repoID, err := strconv.ParseInt(repoIDStr, 10, 64)
+    if err != nil {
+        Error(w, fmt.Errorf("invalid repository ID: %w", err), http.StatusBadRequest)
+        return
+    }
+
+    v := validation.New()
+    v.GreaterThan("repoID", int(repoID), 0)
+    if err := v.Validate(); err != nil {
+        Error(w, err, http.StatusBadRequest)
+        return
+    }
+
+    days := 90
+    if daysStr := r.URL.Query().Get("days"); daysStr != "" {
+        if parsed, err := strconv.Atoi(daysStr); err == nil && parsed > 0 {
+            days = parsed
+        }
+    }
+
+    ctx := r.Context()
+    activity, err := stats.GetCommitActivity(ctx, h.db.Pool(), repoID, days)
+    if err != nil {
+        Error(w, err, http.StatusInternalServerError)
+        return
+    }
+
+    JSON(w, http.StatusOK, map[string]interface{}{
+        "activity": activity,
+    })
+}
