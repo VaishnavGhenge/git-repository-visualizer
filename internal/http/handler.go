@@ -1,11 +1,14 @@
 package http
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 
 	"git-repository-visualizer/internal/config"
 	"git-repository-visualizer/internal/database"
 	"git-repository-visualizer/internal/queue"
+	"git-repository-visualizer/internal/validation"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -49,6 +52,7 @@ func (h *Handler) registerRoutes() {
 
 		// Repository stats
 		r.Route("/repositories/{repoID}/stats", func(r chi.Router) {
+			r.Use(h.ValidateRepositoryStatus)
 			r.Get("/contributors", h.ListContributors)
 			r.Get("/files", h.ListFiles)
 			r.Get("/bus-factor", h.GetBusFactor)
@@ -68,4 +72,42 @@ func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.router.ServeHTTP(w, r)
+}
+
+// ValidateRepositoryStatus middleware ensures that statistics endpoints only serve data
+// for repositories that have been fully indexed.
+func (h *Handler) ValidateRepositoryStatus(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		repoIDStr := chi.URLParam(r, "repoID")
+		if repoIDStr == "" {
+			// Fallback to "id" if "repoID" is not found
+			repoIDStr = chi.URLParam(r, "id")
+		}
+
+		if repoIDStr == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		repoID, err := strconv.ParseInt(repoIDStr, 10, 64)
+		if err != nil {
+			Error(w, fmt.Errorf("invalid repository ID: %w", err), http.StatusBadRequest)
+			return
+		}
+
+		ctx := r.Context()
+		repo, err := h.db.GetRepository(ctx, repoID)
+		if err != nil {
+			parsedErr := validation.ParseDatabaseError(err)
+			Error(w, parsedErr, http.StatusNotFound)
+			return
+		}
+
+		if repo.Status != database.StatusCompleted {
+			Error(w, fmt.Errorf("repository indexing is not completed (current status: %s). please wait for indexing to finish", repo.Status), http.StatusConflict)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
