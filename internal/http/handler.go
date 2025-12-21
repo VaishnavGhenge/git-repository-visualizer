@@ -52,6 +52,7 @@ func (h *Handler) registerRoutes() {
 			r.Get("/contributors", h.ListContributors)
 			r.Get("/files", h.ListFiles)
 			r.Get("/bus-factor", h.GetBusFactor)
+			r.Get("/churn", h.GetChurnStats)
 		})
 
 		// Queue management
