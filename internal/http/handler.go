@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"git-repository-visualizer/internal/auth"
 	"git-repository-visualizer/internal/config"
 	"git-repository-visualizer/internal/database"
 	"git-repository-visualizer/internal/queue"
@@ -14,18 +15,25 @@ import (
 )
 
 type Handler struct {
-	router    *chi.Mux
-	db        *database.DB
-	publisher *queue.Publisher
-	httpCfg   config.HTTPConfig
+	router       *chi.Mux
+	db           *database.DB
+	publisher    queue.IPublisher
+	httpCfg      config.HTTPConfig
+	authRegistry *auth.Registry
+	jwtManager   *auth.JWTManager
 }
 
-func NewHandler(db *database.DB, publisher *queue.Publisher, httpCfg config.HTTPConfig) *Handler {
+func NewHandler(db *database.DB, publisher queue.IPublisher, cfg *config.Config) *Handler {
+	registry := auth.NewRegistry()
+	registry.InitializeProviders(cfg.Auth)
+
 	h := &Handler{
-		router:    chi.NewRouter(),
-		db:        db,
-		publisher: publisher,
-		httpCfg:   httpCfg,
+		router:       chi.NewRouter(),
+		db:           db,
+		publisher:    publisher,
+		httpCfg:      cfg.HTTP,
+		authRegistry: registry,
+		jwtManager:   auth.NewJWTManager(cfg.Auth.JWTSecret),
 	}
 
 	// Apply global middleware
@@ -42,21 +50,34 @@ func (h *Handler) registerRoutes() {
 
 	// API routes - grouped under /api/v1
 	h.router.Route("/api/v1", func(r chi.Router) {
+		// Auth routes
+		r.Route("/auth/{provider}", func(r chi.Router) {
+			r.Get("/login", h.AuthLogin)
+			r.Get("/callback", h.AuthCallback)
+		})
 		// Repository management
-		r.Post("/repositories", h.CreateRepository)
-		r.Patch("/repositories/{id}", h.UpdateRepository)
-		r.Get("/repositories", h.ListRepositories)
-		r.Get("/repositories/{id}", h.GetRepository)
-		r.Post("/repositories/{id}/index", h.IndexRepository)
-		r.Post("/repositories/{id}/sync", h.SyncRepository)
+		// Repository management (Protected)
+		r.Group(func(r chi.Router) {
+			r.Use(h.AuthMiddleware)
 
-		// Repository stats
-		r.Route("/repositories/{repoID}/stats", func(r chi.Router) {
-			r.Use(h.ValidateRepositoryStatus)
-			r.Get("/contributors", h.ListContributors)
-			r.Get("/files", h.ListFiles)
-			r.Get("/bus-factor", h.GetBusFactor)
-			r.Get("/churn", h.GetChurnStats)
+			r.Post("/repositories", h.CreateRepository)
+			r.Patch("/repositories/{id}", h.UpdateRepository)
+			r.Get("/repositories", h.ListRepositories)
+			r.Get("/repositories/{id}", h.GetRepository)
+			r.Post("/repositories/{id}/index", h.IndexRepository)
+			r.Post("/repositories/{id}/sync", h.SyncRepository)
+
+			// Provider-specific features
+			r.Get("/providers/{provider}/repositories", h.GetProviderRepositories)
+
+			// Repository stats
+			r.Route("/repositories/{repoID}/stats", func(r chi.Router) {
+				r.Use(h.ValidateRepositoryStatus)
+				r.Get("/contributors", h.ListContributors)
+				r.Get("/files", h.ListFiles)
+				r.Get("/bus-factor", h.GetBusFactor)
+				r.Get("/churn", h.GetChurnStats)
+			})
 		})
 
 		// Queue management

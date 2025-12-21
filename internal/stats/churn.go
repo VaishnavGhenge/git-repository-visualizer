@@ -6,7 +6,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"git-repository-visualizer/internal/database"
 )
 
 const (
@@ -44,7 +44,7 @@ type FileChurn struct {
 }
 
 // GetHighChurnFiles calculates the churn for files in a repository
-func GetHighChurnFiles(ctx context.Context, pool *pgxpool.Pool, repositoryID int64, opts ChurnOptions) ([]FileChurn, error) {
+func GetHighChurnFiles(ctx context.Context, pool database.PgxIface, repositoryID int64, opts ChurnOptions) ([]FileChurn, error) {
 	// if opts.Limit <= 0 {
 	// 	opts.Limit = DefaultChurnLimit
 	// }

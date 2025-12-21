@@ -53,7 +53,7 @@ func main() {
 	log.Printf("Queue publisher initialized with queue: %s", cfg.Redis.QueueName)
 
 	// Initialize HTTP handler with dependencies
-	h := internalHttp.NewHandler(db, publisher, cfg.HTTP)
+	h := internalHttp.NewHandler(db, publisher, cfg)
 
 	// Create HTTP server
 	server := &http.Server{

@@ -9,20 +9,21 @@ type JobType string
 
 // JobType constants - different types of worker jobs
 const (
-	JobTypeIndex	= JobType("index")
-	JobTypeUpdate	= JobType("update")
-	JobTypeDelete	= JobType("delete")
+	JobTypeIndex    = JobType("index")
+	JobTypeUpdate   = JobType("update")
+	JobTypeDelete   = JobType("delete")
+	JobTypeDiscover = JobType("discover")
 )
 
 // Job represents a unit of work
 type Job struct {
-	ID			string
-	RepositoryID	int64
-	Type		JobType
-	Payload		map[string]interface{}
-	CreatedAt	time.Time
-	Retries		int
-	MaxRetries	int
+	ID           string
+	RepositoryID int64
+	Type         JobType
+	Payload      map[string]interface{}
+	CreatedAt    time.Time
+	Retries      int
+	MaxRetries   int
 }
 
 // ToJSON - Convert job to JSON string for Redis storage

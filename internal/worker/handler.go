@@ -7,22 +7,27 @@ import (
 	"path/filepath"
 	"time"
 
+	"git-repository-visualizer/internal/auth"
 	"git-repository-visualizer/internal/database"
 	"git-repository-visualizer/internal/git"
 	"git-repository-visualizer/internal/queue"
+
+	"golang.org/x/oauth2"
 )
 
 // JobHandler implements the queue.JobHandler interface
 type JobHandler struct {
-	db          *database.DB
-	storagePath string
+	db           *database.DB
+	storagePath  string
+	authRegistry *auth.Registry
 }
 
 // NewJobHandler creates a new job handler
-func NewJobHandler(db *database.DB, storagePath string) *JobHandler {
+func NewJobHandler(db *database.DB, storagePath string, registry *auth.Registry) *JobHandler {
 	return &JobHandler{
-		db:          db,
-		storagePath: storagePath,
+		db:           db,
+		storagePath:  storagePath,
+		authRegistry: registry,
 	}
 }
 
@@ -37,6 +42,8 @@ func (h *JobHandler) HandleJob(ctx context.Context, job *queue.Job) error {
 		return h.handleUpdateJob(ctx, job)
 	case queue.JobTypeDelete:
 		return h.handleDeleteJob(ctx, job)
+	case queue.JobTypeDiscover:
+		return h.handleDiscoverJob(ctx, job)
 	default:
 		return fmt.Errorf("unknown job type: %s", job.Type)
 	}
@@ -130,5 +137,84 @@ func (h *JobHandler) handleDeleteJob(ctx context.Context, job *queue.Job) error 
 	// - Clean up database records
 
 	log.Printf("Successfully deleted repository %d", repoID)
+	return nil
+}
+
+// handleDiscoverJob fetches repositories from a provider and stores them in the DB
+func (h *JobHandler) handleDiscoverJob(ctx context.Context, job *queue.Job) error {
+	userIDRaw, ok := job.Payload["user_id"]
+	if !ok {
+		return fmt.Errorf("missing user_id in discover job payload")
+	}
+	userID := int64(userIDRaw.(float64))
+
+	providerName, ok := job.Payload["provider"]
+	if !ok {
+		return fmt.Errorf("missing provider in discover job payload")
+	}
+	providerStr := providerName.(string)
+
+	log.Printf("Discovering repositories for user %d from provider %s", userID, providerStr)
+
+	// 1. Get user identity
+	identity, err := h.db.GetUserIdentity(ctx, userID, providerStr)
+	if err != nil {
+		return fmt.Errorf("failed to get user identity: %w", err)
+	}
+
+	if identity.AccessToken == nil {
+		return fmt.Errorf("no access token for user %d provider %s", userID, providerStr)
+	}
+
+	// 2. Get provider
+	p, err := h.authRegistry.Get(providerStr)
+	if err != nil {
+		return fmt.Errorf("failed to get provider: %w", err)
+	}
+
+	// 3. Fetch repositories
+	token := &oauth2.Token{
+		AccessToken: *identity.AccessToken,
+	}
+	if identity.RefreshToken != nil {
+		token.RefreshToken = *identity.RefreshToken
+	}
+	if identity.TokenExpiry != nil {
+		token.Expiry = *identity.TokenExpiry
+	}
+
+	repos, err := p.FetchRepositories(ctx, token)
+	if err != nil {
+		return fmt.Errorf("failed to fetch repositories from %s: %w", providerStr, err)
+	}
+
+	// 4. Save to DB
+	for _, r := range repos {
+		// Check if already exists
+		_, err := h.db.GetRepositoryByURL(ctx, r.URL)
+		if err == nil {
+			// Already exists, maybe update metadata but don't overwrite user_id if already set by someone else?
+			// For now, if it exists, we just ensure it's linked if needed or skip.
+			continue
+		}
+
+		repo := &database.Repository{
+			URL:           r.URL,
+			Name:          r.FullName,
+			Description:   r.Description,
+			IsPrivate:     r.IsPrivate,
+			Provider:      providerStr,
+			UserID:        &userID,
+			Status:        database.StatusDiscovered,
+			DefaultBranch: r.DefaultBranch,
+		}
+
+		if err := h.db.CreateRepository(ctx, repo); err != nil {
+			log.Printf("Error creating discovered repository %s: %v", r.URL, err)
+			continue
+		}
+	}
+
+	log.Printf("Successfully discovered %d repositories for user %d", len(repos), userID)
 	return nil
 }

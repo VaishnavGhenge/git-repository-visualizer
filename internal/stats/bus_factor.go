@@ -8,8 +8,7 @@ import (
 	"time"
 
 	"git-repository-visualizer/internal/config"
-
-	"github.com/jackc/pgx/v5/pgxpool"
+	"git-repository-visualizer/internal/database"
 )
 
 // BusFactorOptions contains optional filters for bus factor calculation
@@ -38,7 +37,7 @@ type ContributorOwnership struct {
 
 // CalculateBusFactor calculates the bus factor for a repository
 // Bus factor = minimum contributors who own threshold% of files
-func CalculateBusFactor(ctx context.Context, pool *pgxpool.Pool, repositoryID int64, opts BusFactorOptions) (*BusFactorResult, error) {
+func CalculateBusFactor(ctx context.Context, pool database.PgxIface, repositoryID int64, opts BusFactorOptions) (*BusFactorResult, error) {
 	// Build dynamic WHERE clauses
 	var conditions []string
 	var args []interface{}

@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"git-repository-visualizer/internal/auth"
 	"git-repository-visualizer/internal/config"
 	"git-repository-visualizer/internal/database"
 	"git-repository-visualizer/internal/queue"
@@ -47,8 +48,12 @@ func main() {
 	defer redisClient.Close()
 	log.Println("Redis connected successfully")
 
+	// Initialize auth registry for repository discovery
+	authRegistry := auth.NewRegistry()
+	authRegistry.InitializeProviders(cfg.Auth)
+
 	// Create job handler
-	handler := worker.NewJobHandler(db, cfg.Worker.StoragePath)
+	handler := worker.NewJobHandler(db, cfg.Worker.StoragePath, authRegistry)
 
 	// Create consumer
 	consumer := queue.NewConsumer(

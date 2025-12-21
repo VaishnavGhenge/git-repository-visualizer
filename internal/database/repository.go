@@ -11,8 +11,8 @@ import (
 // CreateRepository creates a new repository record
 func (db *DB) CreateRepository(ctx context.Context, repo *Repository) error {
 	query := `
-		INSERT INTO repositories (url, status, default_branch)
-		VALUES ($1, $2, $3)
+		INSERT INTO repositories (url, status, default_branch, user_id, name, description, is_private, provider)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -21,8 +21,10 @@ func (db *DB) CreateRepository(ctx context.Context, repo *Repository) error {
 		defaultBranch = "main"
 	}
 
-	err := db.pool.QueryRow(ctx, query, repo.URL, repo.Status, defaultBranch).
-		Scan(&repo.ID, &repo.CreatedAt, &repo.UpdatedAt)
+	err := db.pool.QueryRow(ctx, query,
+		repo.URL, repo.Status, defaultBranch, repo.UserID,
+		repo.Name, repo.Description, repo.IsPrivate, repo.Provider,
+	).Scan(&repo.ID, &repo.CreatedAt, &repo.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to create repository: %w", err)
 	}
@@ -33,25 +35,20 @@ func (db *DB) CreateRepository(ctx context.Context, repo *Repository) error {
 // GetRepository retrieves a repository by ID
 func (db *DB) GetRepository(ctx context.Context, id int64) (*Repository, error) {
 	query := `
-		SELECT id, url, local_path, default_branch, status, last_indexed_at, created_at, updated_at
+		SELECT id, url, local_path, default_branch, status, last_indexed_at, created_at, updated_at, 
+		       user_id, name, description, is_private, provider
 		FROM repositories
 		WHERE id = $1
 	`
 
 	repo := &Repository{}
 	err := db.pool.QueryRow(ctx, query, id).Scan(
-		&repo.ID,
-		&repo.URL,
-		&repo.LocalPath,
-		&repo.DefaultBranch,
-		&repo.Status,
-		&repo.LastIndexedAt,
-		&repo.CreatedAt,
-		&repo.UpdatedAt,
+		&repo.ID, &repo.URL, &repo.LocalPath, &repo.DefaultBranch, &repo.Status, &repo.LastIndexedAt,
+		&repo.CreatedAt, &repo.UpdatedAt, &repo.UserID, &repo.Name, &repo.Description, &repo.IsPrivate, &repo.Provider,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("repository not found")
+			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("failed to get repository: %w", err)
 	}
@@ -62,25 +59,20 @@ func (db *DB) GetRepository(ctx context.Context, id int64) (*Repository, error) 
 // GetRepositoryByURL retrieves a repository by its URL
 func (db *DB) GetRepositoryByURL(ctx context.Context, url string) (*Repository, error) {
 	query := `
-		SELECT id, url, local_path, default_branch, status, last_indexed_at, created_at, updated_at
+		SELECT id, url, local_path, default_branch, status, last_indexed_at, created_at, updated_at,
+		       user_id, name, description, is_private, provider
 		FROM repositories
 		WHERE url = $1
 	`
 
 	repo := &Repository{}
 	err := db.pool.QueryRow(ctx, query, url).Scan(
-		&repo.ID,
-		&repo.URL,
-		&repo.LocalPath,
-		&repo.DefaultBranch,
-		&repo.Status,
-		&repo.LastIndexedAt,
-		&repo.CreatedAt,
-		&repo.UpdatedAt,
+		&repo.ID, &repo.URL, &repo.LocalPath, &repo.DefaultBranch, &repo.Status, &repo.LastIndexedAt,
+		&repo.CreatedAt, &repo.UpdatedAt, &repo.UserID, &repo.Name, &repo.Description, &repo.IsPrivate, &repo.Provider,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, fmt.Errorf("repository not found")
+			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("failed to get repository: %w", err)
 	}
@@ -91,7 +83,8 @@ func (db *DB) GetRepositoryByURL(ctx context.Context, url string) (*Repository, 
 // ListRepositories retrieves all repositories with pagination
 func (db *DB) ListRepositories(ctx context.Context, limit, offset int) ([]*Repository, error) {
 	query := `
-		SELECT id, url, local_path, default_branch, status, last_indexed_at, created_at, updated_at
+		SELECT id, url, local_path, default_branch, status, last_indexed_at, created_at, updated_at,
+		       user_id, name, description, is_private, provider
 		FROM repositories
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
@@ -107,14 +100,8 @@ func (db *DB) ListRepositories(ctx context.Context, limit, offset int) ([]*Repos
 	for rows.Next() {
 		repo := &Repository{}
 		err := rows.Scan(
-			&repo.ID,
-			&repo.URL,
-			&repo.LocalPath,
-			&repo.DefaultBranch,
-			&repo.Status,
-			&repo.LastIndexedAt,
-			&repo.CreatedAt,
-			&repo.UpdatedAt,
+			&repo.ID, &repo.URL, &repo.LocalPath, &repo.DefaultBranch, &repo.Status, &repo.LastIndexedAt,
+			&repo.CreatedAt, &repo.UpdatedAt, &repo.UserID, &repo.Name, &repo.Description, &repo.IsPrivate, &repo.Provider,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan repository: %w", err)
@@ -149,13 +136,17 @@ func (db *DB) UpdateRepositoryStatus(ctx context.Context, id int64, status Repos
 func (db *DB) UpdateRepository(ctx context.Context, repo *Repository) error {
 	query := `
 		UPDATE repositories
-		SET local_path = $1, status = $2, last_indexed_at = $3, default_branch = $4
-		WHERE id = $5
+		SET local_path = $1, status = $2, last_indexed_at = $3, default_branch = $4,
+		    name = $5, description = $6, is_private = $7, provider = $8, user_id = $9
+		WHERE id = $10
 		RETURNING updated_at
 	`
 
-	err := db.pool.QueryRow(ctx, query, repo.LocalPath, repo.Status, repo.LastIndexedAt, repo.DefaultBranch, repo.ID).
-		Scan(&repo.UpdatedAt)
+	err := db.pool.QueryRow(ctx, query,
+		repo.LocalPath, repo.Status, repo.LastIndexedAt, repo.DefaultBranch,
+		repo.Name, repo.Description, repo.IsPrivate, repo.Provider, repo.UserID,
+		repo.ID,
+	).Scan(&repo.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to update repository: %w", err)
 	}

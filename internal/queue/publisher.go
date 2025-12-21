@@ -10,19 +10,27 @@ import (
 	"github.com/google/uuid"
 )
 
-type Publisher struct {
+// IPublisher defines the interface for publishing jobs to the queue
+type IPublisher interface {
+	PublishIndexJob(ctx context.Context, repoID int) error
+	PublishUpdateJob(ctx context.Context, repoID int) error
+	PublishDiscoverJob(ctx context.Context, userID int64, provider string) error
+	GetQueueLength(ctx context.Context) (int64, error)
+}
+
+type publisherImpl struct {
 	queue *Queue
 }
 
 // NewPublisher creates a publisher
-func NewPublisher(redisClient *redis.Client, queueName string) *Publisher {
-	return &Publisher{
+func NewPublisher(redisClient *redis.Client, queueName string) IPublisher {
+	return &publisherImpl{
 		queue: NewQueue(redisClient, queueName),
 	}
 }
 
 // PublishIndexJob creates a job to index a repository
-func (p *Publisher) PublishIndexJob(ctx context.Context, repoID int) error {
+func (p *publisherImpl) PublishIndexJob(ctx context.Context, repoID int) error {
 	job := &Job{
 		ID:           uuid.New().String(),
 		RepositoryID: int64(repoID),
@@ -41,7 +49,7 @@ func (p *Publisher) PublishIndexJob(ctx context.Context, repoID int) error {
 }
 
 // PublishUpdateJob creates a job to update a repository
-func (p *Publisher) PublishUpdateJob(ctx context.Context, repoID int) error {
+func (p *publisherImpl) PublishUpdateJob(ctx context.Context, repoID int) error {
 	job := &Job{
 		ID:           uuid.New().String(),
 		RepositoryID: int64(repoID),
@@ -59,8 +67,30 @@ func (p *Publisher) PublishUpdateJob(ctx context.Context, repoID int) error {
 	return nil
 }
 
+// PublishDiscoverJob creates a job to discover repositories for a user
+func (p *publisherImpl) PublishDiscoverJob(ctx context.Context, userID int64, provider string) error {
+	job := &Job{
+		ID:           uuid.New().String(),
+		RepositoryID: 0, // Not tied to a specific repo yet
+		Type:         JobTypeDiscover,
+		Payload: map[string]interface{}{
+			"user_id":  userID,
+			"provider": provider,
+		},
+		CreatedAt:  time.Now(),
+		Retries:    0,
+		MaxRetries: 3,
+	}
+
+	if err := p.queue.Push(job); err != nil {
+		return fmt.Errorf("failed to publish discover job: %w", err)
+	}
+
+	return nil
+}
+
 // GetQueueLength returns current queue size
-func (p *Publisher) GetQueueLength(ctx context.Context) (int64, error) {
+func (p *publisherImpl) GetQueueLength(ctx context.Context) (int64, error) {
 	length, err := p.queue.Length(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get queue length: %w", err)

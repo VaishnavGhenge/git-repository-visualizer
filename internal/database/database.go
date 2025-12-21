@@ -3,16 +3,29 @@ package database
 import (
 	"context"
 	"fmt"
+	"git-repository-visualizer/internal/config"
 	"time"
 
-	"git-repository-visualizer/internal/config"
-
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+var ErrNotFound = fmt.Errorf("resource not found")
+
+// PgxIface defines the subset of pgxpool.Pool methods used by the application
+type PgxIface interface {
+	Begin(ctx context.Context) (pgx.Tx, error)
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Ping(ctx context.Context) error
+	Close()
+}
+
 // DB represents a database connection pool
 type DB struct {
-	pool *pgxpool.Pool
+	pool PgxIface
 }
 
 // Connect creates a new database connection pool
@@ -53,6 +66,11 @@ func (db *DB) Ping(ctx context.Context) error {
 }
 
 // Pool returns the underlying connection pool
-func (db *DB) Pool() *pgxpool.Pool {
+func (db *DB) Pool() PgxIface {
 	return db.pool
+}
+
+// NewTestDB creates a DB instance with a mock pool for testing
+func NewTestDB(pool PgxIface) *DB {
+	return &DB{pool: pool}
 }
